@@ -22,7 +22,7 @@ source('ScBM-LRVAR_library.R')
 # Employees on nonfarm payrolls by industry sector and selected industry detail
 # https://www.bls.gov/news.release/empsit.t17.htm
 
-dir_employ <- "data"
+dir_employ <- "D:/High-dimensional time series/NetworkHAR/code/SBM_LRVAR/Employees"
 date <- mapply(t=1:121,function(t)paste0(rep(c(1990:2020),each=4)[t],
                                          rep(c("-Q1","-Q2","-Q3","-Q4"),31)[t]))
 # Total private

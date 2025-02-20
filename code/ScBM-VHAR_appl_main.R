@@ -15,6 +15,7 @@ library(RColorBrewer)
 library(grid)
 library(gridExtra)
 library(reshape2)
+library(patchwork)
 
 source('ScBM-LRVAR_library.R')
 
@@ -32,8 +33,11 @@ colnames(logrv) <- c("SPX","FTSE","N225","GDAXI","RUT",
 Y_rep <- logrv[,c(2,3,11,16)]
 
 pdf("timeplot_VHAR.pdf", width = 12, height = 9)
-par(mar = c(5, 4, 4, 2) + 1)
-plot.ts(Y_rep,"single",main="")
+par(mar = c(5, 4, 4, 2))
+plot.ts(Y_rep,"single",main="",xaxt="n")
+axis(1, at = seq(1, length(date), by = 1)[(1:length(date))%%72 == 1], 
+     labels = format(date[(1:length(date))%%72 == 1], "%Y-%m-%d"), 
+     las = 1, lwd=0, cex.axis=0.5)
 dev.off()
 pdf("acf_VHAR.pdf", width = 9, height = 9)
 par(mar = c(5, 4, 4, 2) + 1)
@@ -286,18 +290,9 @@ heat_monthly <- ggplot(count_df_monthly , aes(Var1, Var2, fill = value)) +
   theme(legend.position = "none",
         axis.text.y = element_blank(), axis.ticks.y = element_blank())
 
-get_legend <- function(myggplot) {
-  tmp <- ggplot_gtable(ggplot_build(myggplot))
-  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
-  legend <- tmp$grobs[[leg]]
-  return(legend)
-}
-
-legend_comm <- get_legend(heat_daily + theme(legend.position = "bottom"))
-grid.draw(arrangeGrob(arrangeGrob(heat_daily,heat_weekly,heat_monthly,ncol = 3),
-           legend_comm,
-           nrow = 2,
-           heights = c(10, 1)))
+(heat_daily | heat_weekly | heat_monthly) + 
+  plot_layout(heights = c(1, 1, 1),guides = "collect") &
+  theme(legend.position = "bottom")
 dev.off()
 
 
