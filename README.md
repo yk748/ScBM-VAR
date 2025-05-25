@@ -4,6 +4,6 @@ ScBM-VAR is a dynamic network model in which the network structure in each speci
 ## References
 
 <div id="ref-scbm" class="references">
-Younghoon Kim and Changryong Baek. 2025. “Dynamic spectral co-clustering of directed networks to unveil latent community paths in VAR-type models.” *arXiv preprint arXiv:2502.10849.*. <https://arxiv.org/abs/2502.10849>
+Younghoon Kim and Changryong Baek. 2025. “Dynamic spectral co-clustering of directed networks to unveil latent community paths in VAR-type models.” *arXiv preprint arXiv:2502.10849.*. <https://arxiv.org/abs/2502.10849>.
 
 </div>
