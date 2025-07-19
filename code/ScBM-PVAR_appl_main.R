@@ -2,7 +2,6 @@ rm(list=ls())
 
 library(superheat)
 library(igraph)
-library(fastRG)
 library(MASS)
 library(plotly)
 library(combinat)
@@ -15,14 +14,15 @@ library(RColorBrewer)
 library(grid)
 library(gridExtra)
 library(reshape2)
+library(pheatmap)
 
-source('ScBM-LRVAR_library.R')
+source('ScBM_library.R')
 
 #####################################################
 # Employees on nonfarm payrolls by industry sector and selected industry detail
 # https://www.bls.gov/news.release/empsit.t17.htm
 
-dir_employ <- "D:/High-dimensional time series/NetworkHAR/code/SBM_LRVAR/Employees"
+dir_employ <- "./Employees"
 date <- mapply(t=1:121,function(t)paste0(rep(c(1990:2020),each=4)[t],
                                          rep(c("-Q1","-Q2","-Q3","-Q4"),31)[t]))
 # Total private
@@ -281,8 +281,7 @@ data <- cbind(dat_minQ$value,
 colnames(data) <- c(1:22)
 
 #####################################################
-# Figure in supplementary
-
+# Figure 1:
 Y_rep <- data[,c(1:8)]
 colnames(Y_rep) <- c("Mining","Construction","Duration","Nonduration",
                      "Wholesale","Retail","Transportation","Utility")
@@ -303,7 +302,6 @@ dev.off()
 
 #####################################################
 # Estimation:
-set.seed(123)
 Yt <- t(data)
 TT <- dim(Yt)[2]
 q <- dim(Yt)[1]
@@ -313,7 +311,7 @@ superheat(Est_PVAR_ols$Phi_hat)
 Phi_series <- Est_PVAR_ols$Phi_hat
 
 #####################################################
-# Figure in supplementary
+# Figure C1:
 # Check the number of communities:
 svd_1 <- svd(Phi_series[,1:q])
 svd_2 <- svd(Phi_series[,(q+1):(2*q)])
@@ -384,61 +382,60 @@ k1 <- 2; k2 <- 3; k3 <- 4; k4 <- 2
 # Run the algorithm:
 set.seed(123)
 n_comm <- c(2,3,3,4,4,4,4,2)
-alpha_hat <- alpha_cv(Phi_series,q,n_comm=n_comm,fold=5)
+alpha_hat <- alpha_cv(Phi_series,q,p=1,n_comm=n_comm,type="PVAR",clst="kmeans",fold=5)
 
-PisCES_output <- PisCES(Phi_series,q,n_comm=n_comm,s=4,p=1,alpha=alpha_hat$alpha_hat)
-PVAR_4R1L <- blockbuster(cbind(PisCES_output$VR_bar[[4]],
-                               PisCES_output$VL_bar[[1]]),q,2)
-PVAR_1R2L <- blockbuster(cbind(PisCES_output$VR_bar[[1]],
-                               PisCES_output$VL_bar[[2]]),q,3)
-PVAR_2R3L <- blockbuster(cbind(PisCES_output$VR_bar[[2]],
-                               PisCES_output$VL_bar[[3]]),q,4)
-PVAR_3R4L <- blockbuster(cbind(PisCES_output$VR_bar[[3]],
-                               PisCES_output$VL_bar[[4]]),q,4)
+PisCES_output <- PisCES(Phi_series,q,p=1,n_comm=n_comm,s=4,alpha=alpha_hat$alpha_hat)
+PVAR_4R1L <- Blockbuster(cbind(PisCES_output$VR_bar[[4]],
+                               PisCES_output$VL_bar[[1]]),q,2,clst="kmeans")
+PVAR_1R2L <- Blockbuster(cbind(PisCES_output$VR_bar[[1]],
+                               PisCES_output$VL_bar[[2]]),q,3,clst="kmeans")
+PVAR_2R3L <- Blockbuster(cbind(PisCES_output$VR_bar[[2]],
+                               PisCES_output$VL_bar[[3]]),q,4,clst="kmeans")
+PVAR_3R4L <- Blockbuster(cbind(PisCES_output$VR_bar[[3]],
+                               PisCES_output$VL_bar[[4]]),q,4,clst="kmeans")
 
 # Refine the labels:
 result_list <- list(PVAR_4R1L,PVAR_1R2L,PVAR_2R3L,PVAR_3R4L)
-refined_list <- Refiner(result_list)
-PVAR_4R1L <- refined_list[[1]]
-PVAR_1R2L <- refined_list[[2]]
-PVAR_2R3L <- refined_list[[3]]
-PVAR_3R4L <- refined_list[[4]]
+PVAR_4R1L <- result_list[[1]]
+PVAR_1R2L <- result_list[[2]]
+PVAR_2R3L <- result_list[[3]]
+PVAR_3R4L <- result_list[[4]]
 
-disc_table <- matrix(NA,22,22)
-for (i in 1:22){
-  disc_table[i,] <- rowSums(t(mapply(j=1:22,function(j)abs(flow[j,] != flow[i,]))))
-}
-
-
-#####################################################
-# Main Figure
-# Construct data flows:
-flow <- mapply(x=c(1,2,2,3,3,4,4,1),function(x)refined_list[[x]]$group_1q)
+flow <- mapply(x=c(1,2,2,3,3,4,4,1),function(x)result_list[[x]]$group_1q)
 rownames(flow) <-  c("Mining","Construction","Durable","Nondurable","Wholesale",
-                      "Retail","Transportation","Utility","Information",
-                      "Finance","RealEstate","Professional","Management","Administration",
-                      "Education","HealthCare","Arts","Accommodation","Other",
-                      "Federal","State","Local")
+                     "Retail","Transportation","Utility","Information",
+                     "Finance","RealEstate","Professional","Management","Administration",
+                     "Education","HealthCare","Arts","Accommodation","Other",
+                     "Federal","State","Local")
 colnames(flow) <- c("Q1.send","Q1.receive",
                     "Q2.send","Q2.receive",
                     "Q3.send","Q3.receive",
                     "Q4.send","Q4.receive")
 
-data_flow <- data.frame(x = c(rep("Q1.sending",q),rep("Q1.receiving",q),rep("Q2.sending",q),
-                              rep("Q2.receiving",q),rep("Q3.sending",q),rep("Q3.receiving",q),
+#####################################################
+# Figure 2:
+# Construct data flows:
+data_flow <- data.frame(x = c(rep("Q1.sending",q),rep("Q1.receiving",q),
+                              rep("Q2.sending",q),rep("Q2.receiving",q),
+                              rep("Q3.sending",q),rep("Q3.receiving",q),
                               rep("Q4.sending",q),rep("Q4.receiving",q)), 
                         node = c(flow[,1],flow[,2],flow[,3],flow[,4],flow[,5],
                                  flow[,6],flow[,7],flow[,8]),
                         next_x = c(rep("Q1.receiving",q),rep("Q2.sending",q),
-                                   rep("Q2.receiving",q),rep("Q3.sending",q),rep("Q3.receiving",q),
-                                   rep("Q4.sending",q),rep("Q4.receiving",q),rep(NA,q)),
+                                   rep("Q2.receiving",q),rep("Q3.sending",q),
+                                   rep("Q3.receiving",q),rep("Q4.sending",q),
+                                   rep("Q4.receiving",q),rep(NA,q)),
                         next_node = c(flow[,2],flow[,3],flow[,4],flow[,5],flow[,6],
                                       flow[,7],flow[,8],flow[,1]))
 
-data_flow$x <- factor(data_flow$x,levels=c("Q1.sending","Q1.receiving","Q2.sending","Q2.receiving",
-                                           "Q3.sending","Q3.receiving","Q4.sending","Q4.receiving"))
-data_flow$next_x <- factor(data_flow$next_x,levels=c("Q1.sending","Q1.receiving","Q2.sending","Q2.receiving",
-                                                     "Q3.sending","Q3.receiving","Q4.sending","Q4.receiving"))
+data_flow$x <- factor(data_flow$x,levels=c("Q1.sending","Q1.receiving",
+                                           "Q2.sending","Q2.receiving",
+                                           "Q3.sending","Q3.receiving",
+                                           "Q4.sending","Q4.receiving"))
+data_flow$next_x <- factor(data_flow$next_x,levels=c("Q1.sending","Q1.receiving",
+                                                     "Q2.sending","Q2.receiving",
+                                                     "Q3.sending","Q3.receiving",
+                                                     "Q4.sending","Q4.receiving"))
 
 data_flow$node <- factor(data_flow$node,levels=c(1,2,3,4))
 data_flow$next_node <- factor(data_flow$next_node,levels=c(1,2,3,4))
@@ -456,19 +453,19 @@ ggplot(data_flow, aes(x = x, next_x = next_x,
   theme(legend.position = "none",
         plot.title = element_text(hjust = .5)) +
   #Q1.in, group 1
-  annotate("text", x = 1, y = c(2:(3-length(names(which(flow[,1]==1))))), 
+  annotate("text", x = 1, y = c(-3:(-2-length(names(which(flow[,1]==1))))), 
            color=colorful[which(flow[,1]==1)],
            size=4,label=names(which(flow[,1]==1)),fontface=2)  + 
   #Q1.in, group 2
-  annotate("text", x = 1, y = c(6:(5+length(names(which(flow[,1]==2))))), 
+  annotate("text", x = 1, y = c(1:(length(names(which(flow[,1]==2))))), 
            color=colorful[which(flow[,1]==2)],
            size=4,label=names(which(flow[,1]==2)),fontface=2)  +
   #Q2.in, group 1
-  annotate("text", x = 3, y = c(-6:(-5-length(names(which(flow[,3]==1))))), 
+  annotate("text", x = 3, y = c(-7:(-6-length(names(which(flow[,3]==1))))), 
            color=colorful[which(flow[,3]==1)],
            size=4,label=names(which(flow[,3]==1)),fontface=2)  + 
   #Q2.in, group 2
-  annotate("text", x = 3, y = c(-2.5:(-3.5+length(names(which(flow[,3]==2))))), 
+  annotate("text", x = 3, y = c(-3.5:(-4.5+length(names(which(flow[,3]==2))))), 
            color=colorful[which(flow[,3]==2)], 
            size=4,label=names(which(flow[,3]==2)),fontface=2) + 
   #Q2.in, group 3
@@ -476,73 +473,73 @@ ggplot(data_flow, aes(x = x, next_x = next_x,
            color=colorful[which(flow[,3]==3)], 
            size=4,label=names(which(flow[,3]==3)),fontface=2)+
   #Q3.in, group 1
-  annotate("text", x = 5, y = c(-9.5:(-8.5-length(names(which(flow[,5]==1))))), 
+  annotate("text", x = 5, y = c(-11.5:(-10.5-length(names(which(flow[,5]==1))))), 
            color=colorful[which(flow[,5]==1)],
            size=4,label=names(which(flow[,5]==1)),fontface=2)  + 
   #Q3.in, group 2
-  annotate("text", x = 5, y = c(-6:(-7+length(names(which(flow[,5]==2))))), 
+  annotate("text", x = 5, y = c(-8:(-9+length(names(which(flow[,5]==2))))), 
            color=colorful[which(flow[,5]==2)],
            size=4,label=names(which(flow[,5]==2)),fontface=2) + 
   #Q3.in, group 3
-  annotate("text", x = 5, y = c(3:(2+length(names(which(flow[,5]==3))))), 
+  annotate("text", x = 5, y = c(1:(length(names(which(flow[,5]==3))))), 
            color=colorful[which(flow[,5]==3)],
            size=4,label=names(which(flow[,5]==3)),fontface=2) + 
   #Q3.in, group 4
-  annotate("text", x = 5, y = c(11.5:(10.5+length(names(which(flow[,5]==4))))), 
+  annotate("text", x = 5, y = c(9.5:(8.5+length(names(which(flow[,5]==4))))), 
            color=colorful[which(flow[,5]==4)],
            size=4,label=names(which(flow[,5]==4)),fontface=2)+
   #Q4.in, group 1
-  annotate("text", x = 7, y = c(-10.5:(-9.5-length(names(which(flow[,7]==1))))), 
+  annotate("text", x = 7, y = c(-8.5:(-7.5-length(names(which(flow[,7]==1))))), 
            color=colorful[which(flow[,7]==1)],
            size=4,label=names(which(flow[,7]==1)),fontface=2) + 
   #Q4.in, group 2
-  annotate("text", x = 7, y = c(-7:(-8+length(names(which(flow[,7]==2))))), 
+  annotate("text", x = 7, y = c(-5:(-6+length(names(which(flow[,7]==2))))), 
            color=colorful[which(flow[,7]==2)],
            size=4,label=names(which(flow[,7]==2)),fontface=2) + 
   #Q4.in, group 3
-  annotate("text", x = 7, y = c(1:(0+length(names(which(flow[,7]==3))))), 
+  annotate("text", x = 7, y = c(3:(2+length(names(which(flow[,7]==3))))), 
            color=colorful[which(flow[,7]==3)],
            size=4,label=names(which(flow[,7]==3)),fontface=2)  + 
   #Q4.in, group 4
-  annotate("text", x = 7, y = c(8.5:(7.5+length(names(which(flow[,7]==4))))), 
+  annotate("text", x = 7, y = c(10.5:(9.5+length(names(which(flow[,7]==4))))), 
            color=colorful[which(flow[,7]==4)],
            size=4,label=names(which(flow[,7]==4)),fontface=2)  
 dev.off()
 
 
 #####################################################
-# Main Figure
+# Figure 3:
 # Construct discrepancy matrix
 disc_table <- matrix(NA,22,22)
 for (i in 1:22){
   disc_table[i,] <- rowSums(t(mapply(j=1:22,function(j)abs(flow[j,] != flow[i,]))))
 }
+disc_table <- disc_table/2
 
-rownames(disc_table) <- c("Mining","Construction","Durable","Nondurable","Wholesale",
-                          "Retail","Transportation","Utility","Information",
-                          "Finance","RealEstate","Professional","Management","Administration",
-                          "Education","HealthCare","Arts","Accommodation","Other",
-                          "Federal","State","Local")
-colnames(disc_table) <- c("Mining","Construction","Durable","Nondurable","Wholesale",
-                          "Retail","Transportation","Utility","Information",
-                          "Finance","RealEstate","Professional","Management","Administration",
-                          "Education","HealthCare","Arts","Accommodation","Other",
-                          "Federal","State","Local")
+rownames(disc_table) <- colnames(disc_table) <- c("Mining","Construction","Durable",
+                                                  "Nondurable","Wholesale",
+                                                  "Retail","Transportation",
+                                                  "Utility","Information",
+                                                  "Finance","RealEstate",
+                                                  "Professional","Management",
+                                                  "Administration",
+                                                  "Education","HealthCare",
+                                                  "Arts","Accommodation","Other",
+                                                  "Federal","State","Local")
 
-count_df <- melt(disc_table)
+pl_heat <- pheatmap::pheatmap(as.matrix(disc_table),
+         clustering_distance_rows = as.dist(disc_table),
+         clustering_distance_cols = as.dist(disc_table),
+         clustering_method = "average",
+         fontsize_row = 14,      
+         fontsize_col = 14,     
+         angle_col = "45", legend = TRUE,
+         color = colorRampPalette(c("blue", "white", "red"))(5))
 
 pdf("heatmap_PVAR.pdf", width = 13, height = 9)
-ggplot(count_df, aes(Var1, Var2, fill = value)) +
-  geom_tile() +
-  scale_fill_gradient(low = "red", high = "white") +
-  scale_y_discrete(limits = rev(levels(factor(count_df$Var1)))) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  labs(x = "", y = "", fill = "Discrepancy") + 
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+print(pl_heat)
+grid.text("Discrepancy (All seasons)", x = 0.93, y = 0.95, gp = gpar(fontsize = 14, fontface = "bold"))
 dev.off()
-
-
 
 
 

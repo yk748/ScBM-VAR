@@ -1,179 +1,224 @@
 
 get_sim <- function(q,TT,k,l,iter_max){
-  
-    if (k == 1){
-      nc <- 2
-    }else if (k == 2){
-      nc <- 3
-    }else if (k == 3){
-      nc <- 5
-    }
 
-    if (l == 1){
-      bd <- 0.5; bu <- 0.05; bl <- 0.1
-    }else if (l == 2){
-      bd <- 0.5; bu <- 0.15; bl <- 0.1
-    }else if (l == 3){
-      bd <- 0.5; bu <- 0.25; bl <- 0.1
-    }
+  s <- 4; p <- 1
+  bd <- c(0.5,0.7,0.6,0.5)
+  if (l == 1){
+    bu <- 0.01; bl <- 0.01
+  }else{
+    bu <- 0.02; bl <- 0.02
+  }
+  
+  B_list <- list()
+  if (k == 1){
+    nc <- c(2,2,2,2)
+    n_comm <- c(2,2,2,2,2,2,2,2)
     
-    K <- 5; s <- 4; p <- 1
-    B_list <- list()
     for (m in 1:s){
-      B_list[[m]] <- matrix(rep(0,K*K),K,K)
-      diag(B_list[[m]]) <- rep(bd,K)
+      B_list[[m]] <- matrix(rep(0,nc[m]*nc[m]),nc[m],nc[m])
+      diag(B_list[[m]]) <- rep(bd[m],nc[m])
       B_list[[m]][upper.tri(B_list[[m]])] <- bu
       B_list[[m]][lower.tri(B_list[[m]])] <- bl
-      if (nc != K){
-        B_list[[m]][,(nc+1):K] <- B_list[[m]][(nc+1):K,] <- 0
-      }
     }
     
-    library(doParallel)
-    require(dqrng)
-    require(doRNG)
+  }else if (k == 2){
+    nc <- c(4,4,4,4)
+    n_comm <- c(4,4,4,4,4,4,4,4)
     
-    list_dummy <- list()
-    cl <- makeCluster(detectCores())
-    registerDoParallel(cl)
+    for (m in 1:s){
+      B_list[[m]] <- matrix(rep(0,nc[m]*nc[m]),nc[m],nc[m])
+      diag(B_list[[m]]) <- rep(bd[m],nc[m])
+      B_list[[m]][upper.tri(B_list[[m]])] <- bu
+      B_list[[m]][lower.tri(B_list[[m]])] <- bl
+    }
     
-    PVAR_sim <- foreach(iter = 1:iter_max,
-                        .errorhandling = 'remove',
-                        .packages = c("MASS","combinat","foreach","randnet","mclust")) %dopar% {
+  }else if (k == 3){
+    nc <- c(2,3,3,2)
+    n_comm <- c(2,3,3,3,3,3,3,2)
+    
+    for (m in 1:s){
+      B_list[[m]] <- matrix(rep(0,n_comm[2*(m-1)+1]*n_comm[2*m]),n_comm[2*(m-1)+1],n_comm[2*m])
+      if (length(diag(B_list[[m]])) < length(rep(bd[m],n_comm[2*(m-1)+1]))){
+        diag(B_list[[m]]) <- rep(bd[m],n_comm[2*m])
+      }else{
+        diag(B_list[[m]]) <- rep(bd[m],n_comm[2*(m-1)+1])
+      }
+      B_list[[m]][upper.tri(B_list[[m]])] <- bu
+      B_list[[m]][lower.tri(B_list[[m]])] <- bl
+    }
+    
+  }else {
+    nc <- c(2,3,4,2)
+    n_comm <- c(2,3,3,4,4,4,4,2)
+    
+    for (m in 1:s){
+      B_list[[m]] <- matrix(rep(0,n_comm[2*(m-1)+1]*n_comm[2*m]),n_comm[2*(m-1)+1],n_comm[2*m])
+      if (length(diag(B_list[[m]])) < length(rep(bd[m],n_comm[2*(m-1)+1]))){
+        diag(B_list[[m]]) <- rep(bd[m],n_comm[2*m])
+      }else{
+        diag(B_list[[m]]) <- rep(bd[m],n_comm[2*(m-1)+1])
+      }
+      B_list[[m]][upper.tri(B_list[[m]])] <- bu
+      B_list[[m]][lower.tri(B_list[[m]])] <- bl
+    }
+    
+  }
+  
+  library(doParallel)
+  require(dqrng)
+  require(doRNG)
+
+  cl <- makeCluster(detectCores())
+  registerDoParallel(cl)
+
+  PVAR_sim <- foreach(iter = 1:iter_max,
+                      .errorhandling = 'remove',
+                      .packages = c("igraph","MASS","cluster","combinat","foreach",
+                                    "mclust","gtools")) %dopar% {
+
+                        source("ScBM_library.R")
+                        s <- 4; p <- 1
+                        Sigma <- diag(0.1,q)
+                        
+                        # --------------------------------------------------------------- #
+                        # Data generation:
+                        phi <- list()
+                        for (m in 1:s){
+                          phi[[m]] <- 0.99
+                        }
+                        
+                        max_eig <- 1
+                        while (max_eig > 0.95){
+                          ScBM <- Phi_generator(q, B_list, s, phi, selfTF=TRUE, 
+                                                n_comm, threshold=TRUE)
                           
-      source('ScBM-VAR_library.R')   
-      K <- 5; s <- 4; p <- 1          
-      Sigma <- diag(1,q)
-      
-      phi <- list() # Some specific constant
-      phi[[1]] <- 0.99; phi[[2]] <- 0.99; phi[[3]] <- 0.99; phi[[4]] <- 0.99
-      
-      max_eig <- 1
-      while (max_eig > 0.95){
-        ScBM <- DC_ScBM_generator(q,s,rep(K,2*s),B_list,
-                                  type="PVAR",p,phi=phi,tau=TRUE)
-        Phi_large <- matrix(0,s*q,s*q)
-        Phi_large[1:q,(3*q+1):(4*q)] <- ScBM$Phi[[1]]
-        Phi_large[(q+1):(2*q),1:q] <- ScBM$Phi[[2]]
-        Phi_large[(2*q+1):(3*q),(q+1):(2*q)] <- ScBM$Phi[[3]]
-        Phi_large[(3*q+1):(4*q),(2*q+1):(3*q)] <- ScBM$Phi[[4]]
-        
-        max_eig <- max(abs(eigen(Phi_large)$values))
-        if (max_eig > 0.95){
-          cat("Again!\n")
-          phi[[1]] <- phi[[1]]*0.9
-          phi[[2]] <- phi[[2]]*0.9
-          phi[[3]] <- phi[[3]]*0.9
-          phi[[4]] <- phi[[4]]*0.9
-        }
-      }
-      Phi_series <- cbind(ScBM$Phi[[1]],ScBM$Phi[[2]],ScBM$Phi[[3]],ScBM$Phi[[4]])
-      Yt <- PVAR_generator(TT, s, p, Phi_series, Sigma)
-      Phi_hat <- PVAR_ols_new(Yt,s,p=1)$Phi_hat
-      
-      alpha_hat <- alpha_cv(Phi_hat,q,p,rep(K,2*s),type="PVAR",fold=5)
-      
-      PisCES_hat <- PisCES(Phi_hat,q,p,rep(K,2*s),s,alpha=alpha_hat$alpha_hat)
-      PVAR_4R1L <- Blockbuster(cbind(PisCES_hat$VR_bar[[4]],
-                                     PisCES_hat$VL_bar[[1]]),q,K)
-      PVAR_1R2L <- Blockbuster(cbind(PisCES_hat$VR_bar[[1]],
-                                     PisCES_hat$VL_bar[[2]]),q,K)
-      PVAR_2R3L <- Blockbuster(cbind(PisCES_hat$VR_bar[[2]],
-                                     PisCES_hat$VL_bar[[3]]),q,K)
-      PVAR_3R4L <- Blockbuster(cbind(PisCES_hat$VR_bar[[3]],
-                                     PisCES_hat$VL_bar[[4]]),q,K)
-      
-      acc_agg <- array(NA,dim=c(s,2)); acc_class <- array(NA,dim=c(s,2))
-      ARI_tab <- array(NA,dim=c(s,2)); NMI_tab <- array(NA,dim=c(s,2))
-      for (m in 1:s){
-        
-        ref_L <- mapply(i=1:q,function(i) which(ScBM$Y[[m]][i,]==1))
-        ref_R <- mapply(i=1:q,function(i) which(ScBM$Z[[m]][i,]==1))
-        
-        if (m == 1){
-          est_L <- PVAR_4R1L$group_1q
-          est_R <- PVAR_1R2L$group_1q
-        }else if (m == 2){
-          est_L <- PVAR_1R2L$group_1q
-          est_R <- PVAR_2R3L$group_1q
-        }else if (m == 3){
-          est_L <- PVAR_2R3L$group_1q
-          est_R <- PVAR_3R4L$group_1q
-        }else if (m == 4){
-          est_L <- PVAR_3R4L$group_1q
-          est_R <- PVAR_4R1L$group_1q
-        }
-        perm_L <- lapply(permn(c(1:K)), function(purt) {
-          new_L <- est_L
-          for (i in 1:K) {
-            new_L[est_L == i] <- purt[i]
-          }
-          new_L
-        })
-        perm_R <- lapply(permn(c(1:K)), function(purt) {
-          new_R <- est_R
-          for (i in 1:K) {
-            new_R[est_R == i] <- purt[i]
-          }
-          new_R
-        })
-        
-        acc_agg_L <- vector("numeric",factorial(K)) 
-        acc_agg_R <- vector("numeric",factorial(K))
-        acc_class_L <- vector("numeric",factorial(K)) 
-        acc_class_R <- vector("numeric",factorial(K))
-        for (i in 1:factorial(K)){
-          acc_agg_L[i] <- sum(perm_L[[i]] == ref_L)/q
-          acc_agg_R[i] <- sum(perm_R[[i]] == ref_R)/q
-          acc_class_L[i] <- mean(colMeans(mapply(k=1:K,function(k)perm_L[[i]] == k)[,1:nc]
-                                          == mapply(k=1:K,function(k)ref_L==k)[,1:nc]))
-          acc_class_R[i] <- mean(colMeans(mapply(k=1:K,function(k)perm_R[[i]] == k)[,1:nc]
-                                          == mapply(k=1:K,function(k)ref_R==k)[,1:nc]))
-        }
-        acc_agg[m,1] <- max(acc_agg_L); acc_agg[m,2] <- max(acc_agg_R);
-        acc_class[m,1] <- max(acc_class_L); acc_class[m,2] <- max(acc_class_R);
-        ARI_tab[m,1] <- adjustedRandIndex(perm_L[[1]],ref_L) ; 
-        ARI_tab[m,2] <- adjustedRandIndex(perm_R[[1]],ref_R);
-        NMI_tab[m,1] <- NMI(perm_L[[1]],ref_L); 
-        NMI_tab[m,2] <- NMI(perm_R[[1]],ref_R);
-      }
-      
-      output <- list()
-      output$Y <- ScBM$Y
-      output$Z <- ScBM$Z
-      output$PisCES <- PisCES_hat
-      output$PVAR_4R1L <- PVAR_4R1L
-      output$PVAR_1R2L <- PVAR_1R2L
-      output$PVAR_2R3L <- PVAR_2R3L
-      output$PVAR_3R4L <- PVAR_3R4L
-      output$acc_agg_L <- acc_agg_L
-      output$acc_agg_R <- acc_agg_R
-      output$acc_agg <- acc_agg
-      output$acc_class_L <- acc_class_L
-      output$acc_class_R <- acc_class_R
-      output$acc_class <- acc_class
-      output$ARI <- ARI_tab
-      output$NMI <- NMI_tab
-      list_dummy[[iter]] <- output
-    }  
-    stopCluster(cl)
-    save(PVAR_sim,file=paste0("PVAR_q",q,"_T",TT,"_nc",nc,"_Bmat_type",l,".RData"))
+                          Phi_large <- matrix(0,s*q,s*q)
+                          Phi_large[1:q,(3*q+1):(4*q)] <- ScBM$Phi[[1]]
+                          Phi_large[(q+1):(2*q),1:q] <- ScBM$Phi[[2]]
+                          Phi_large[(2*q+1):(3*q),(q+1):(2*q)] <- ScBM$Phi[[3]]
+                          Phi_large[(3*q+1):(4*q),(2*q+1):(3*q)] <- ScBM$Phi[[4]]
+                          
+                          max_eig <- spectral_radius_power(Phi_large)
+                          if (max_eig > 0.95){
+                            cat("Again!\n")
+                            phi[[1]] <- phi[[1]]*0.9
+                            phi[[2]] <- phi[[2]]*0.9
+                            phi[[3]] <- phi[[3]]*0.9
+                            phi[[4]] <- phi[[4]]*0.9
+                          }
+                        }
+                        Phi_series <- cbind(ScBM$Phi[[1]],ScBM$Phi[[2]],ScBM$Phi[[3]],ScBM$Phi[[4]])
+                        Yt <- PVAR_generator(TT, s, p, Phi_series, Sigma=diag(1,q))
+                        Phi_hat <- PVAR_ols(Yt,s,p=1)$Phi_hat
+
+                        # --------------------------------------------------------------- #
+                        # alpha + kmeans
+                        alpha_hat_kmeans <- alpha_cv(Phi_hat,q,p,n_comm,type="PVAR",clst="kmeans",fold=5)
+
+                        PisCES_hat_kmeans <- PisCES(Phi_hat,q,p,n_comm,s,alpha=alpha_hat_kmeans$alpha_hat)
+                        PVAR_4R1L_kmeans <- Blockbuster(cbind(PisCES_hat_kmeans$VR_bar[[4]],
+                                                       PisCES_hat_kmeans$VL_bar[[1]]),q,nc[1],clst="kmeans")
+                        PVAR_1R2L_kmeans <- Blockbuster(cbind(PisCES_hat_kmeans$VR_bar[[1]],
+                                                       PisCES_hat_kmeans$VL_bar[[2]]),q,nc[2],clst="kmeans")
+                        PVAR_2R3L_kmeans <- Blockbuster(cbind(PisCES_hat_kmeans$VR_bar[[2]],
+                                                       PisCES_hat_kmeans$VL_bar[[3]]),q,nc[3],clst="kmeans")
+                        PVAR_3R4L_kmeans <- Blockbuster(cbind(PisCES_hat_kmeans$VR_bar[[3]],
+                                                       PisCES_hat_kmeans$VL_bar[[4]]),q,nc[4],clst="kmeans")
+
+                        output_kmeans <- list(evaluate_clustering(ScBM$z_vec[,1],PVAR_1R2L_kmeans$group_1q),
+                                              evaluate_clustering(ScBM$z_vec[,2],PVAR_2R3L_kmeans$group_1q),
+                                              evaluate_clustering(ScBM$z_vec[,3],PVAR_3R4L_kmeans$group_1q),
+                                              evaluate_clustering(ScBM$z_vec[,4],PVAR_4R1L_kmeans$group_1q))
+
+                        # --------------------------------------------------------------- #
+                        # alpha + pam
+                        alpha_hat_pam <- alpha_cv(Phi_hat,q,p,n_comm,type="PVAR",clst="pam",fold=5)
+
+                        PisCES_hat_pam <- PisCES(Phi_hat,q,p,n_comm,s,alpha=alpha_hat_pam$alpha_hat)
+                        PVAR_4R1L_pam <- Blockbuster(cbind(PisCES_hat_pam$VR_bar[[4]],
+                                                       PisCES_hat_pam$VL_bar[[1]]),q,nc[1],clst="pam")
+                        PVAR_1R2L_pam <- Blockbuster(cbind(PisCES_hat_pam$VR_bar[[1]],
+                                                       PisCES_hat_pam$VL_bar[[2]]),q,nc[2],clst="pam")
+                        PVAR_2R3L_pam <- Blockbuster(cbind(PisCES_hat_pam$VR_bar[[2]],
+                                                       PisCES_hat_pam$VL_bar[[3]]),q,nc[3],clst="pam")
+                        PVAR_3R4L_pam <- Blockbuster(cbind(PisCES_hat_pam$VR_bar[[3]],
+                                                       PisCES_hat_pam$VL_bar[[4]]),q,nc[4],clst="pam")
+
+                        output_pam <- list(evaluate_clustering(ScBM$z_vec[,1],PVAR_1R2L_pam$group_1q),
+                                              evaluate_clustering(ScBM$z_vec[,2],PVAR_2R3L_pam$group_1q),
+                                              evaluate_clustering(ScBM$z_vec[,3],PVAR_3R4L_pam$group_1q),
+                                              evaluate_clustering(ScBM$z_vec[,4],PVAR_4R1L_pam$group_1q))
+
+                        # --------------------------------------------------------------- #
+                        # no alpha + kmeans
+                        PisCES_hat_noalpha <- PisCES(Phi_hat,q,p,n_comm,s,alpha=0)
+                        PVAR_4R1L_noalpha <- Blockbuster(cbind(PisCES_hat_noalpha$VR_bar[[4]],
+                                                        PisCES_hat_noalpha$VL_bar[[1]]),q,nc[1],clst="kmeans")
+                        PVAR_1R2L_noalpha <- Blockbuster(cbind(PisCES_hat_noalpha$VR_bar[[1]],
+                                                        PisCES_hat_noalpha$VL_bar[[2]]),q,nc[2],clst="kmeans")
+                        PVAR_2R3L_noalpha <- Blockbuster(cbind(PisCES_hat_noalpha$VR_bar[[2]],
+                                                        PisCES_hat_noalpha$VL_bar[[3]]),q,nc[3],clst="kmeans")
+                        PVAR_3R4L_noalpha <- Blockbuster(cbind(PisCES_hat_noalpha$VR_bar[[3]],
+                                                        PisCES_hat_noalpha$VL_bar[[4]]),q,nc[4],clst="kmeans")
+                        output_noalpha <- list(evaluate_clustering(ScBM$z_vec[,1],PVAR_1R2L_noalpha$group_1q),
+                                           evaluate_clustering(ScBM$z_vec[,2],PVAR_2R3L_noalpha$group_1q),
+                                           evaluate_clustering(ScBM$z_vec[,3],PVAR_3R4L_noalpha$group_1q),
+                                           evaluate_clustering(ScBM$z_vec[,4],PVAR_4R1L_noalpha$group_1q))
+
+                        # --------------------------------------------------------------- #
+                        # no alpha + pam
+                        PisCES_hat_noalpha_pam <- PisCES(Phi_hat,q,p,n_comm,s,alpha=0)
+                        PVAR_4R1L_noalpha_pam <- Blockbuster(cbind(PisCES_hat_noalpha_pam$VR_bar[[4]],
+                                                         PisCES_hat_noalpha_pam$VL_bar[[1]]),q,nc[1],clst="pam")
+                        PVAR_1R2L_noalpha_pam <- Blockbuster(cbind(PisCES_hat_noalpha_pam$VR_bar[[1]],
+                                                         PisCES_hat_noalpha_pam$VL_bar[[2]]),q,nc[2],clst="pam")
+                        PVAR_2R3L_noalpha_pam <- Blockbuster(cbind(PisCES_hat_noalpha_pam$VR_bar[[2]],
+                                                         PisCES_hat_noalpha_pam$VL_bar[[3]]),q,nc[3],clst="pam")
+                        PVAR_3R4L_noalpha_pam <- Blockbuster(cbind(PisCES_hat_noalpha_pam$VR_bar[[3]],
+                                                         PisCES_hat_noalpha_pam$VL_bar[[4]]),q,nc[4],clst="pam")
+                        output_noalpha_pam <- list(evaluate_clustering(ScBM$z_vec[,1],PVAR_1R2L_noalpha_pam$group_1q),
+                                               evaluate_clustering(ScBM$z_vec[,2],PVAR_2R3L_noalpha_pam$group_1q),
+                                               evaluate_clustering(ScBM$z_vec[,3],PVAR_3R4L_noalpha_pam$group_1q),
+                                               evaluate_clustering(ScBM$z_vec[,4],PVAR_4R1L_noalpha_pam$group_1q))
+                        
+
+                        # --------------------------------------------------------------- #
+                        # output
+                        output <- list()
+                        output$Phi_hat <- Phi_hat
+                        output$y_vec <- ScBM$y_vec
+                        output$z_vec <- ScBM$z_vec
+
+                        output$kmeans <- output_kmeans
+                        output$pam <- output_pam
+                        output$noalpha <- output_noalpha
+                        output$noalpha_pam <- output_noalpha_pam
+                        output
+  }
+  stopCluster(cl)
+  print(length(PVAR_sim))
+  if (length(PVAR_sim) == 0) {
+    warning("No successful iterations were returned.")
+  }
+  save(PVAR_sim,file=paste0("sim_PVAR_q",q,"_T",TT,"_B_mat_type",k,"_deg_type",l,".RData"))
 }
 
 #####################################################################################
 
-q_list <- c(20,30,50,100)
-T_list <- c(100,200,400,1000,2000,4000)
-for (i in 1:4){
+# Run iterations
+q_list <- c(24,60,120)
+T_list <- c(200,400,1000,2000,4000)
+for (i in 1:3){
   q <- q_list[i]
-  
-  for (j in 1:6){
+
+  for (j in 1:5){
     TT <- T_list[j]
 
-    for (k in c(1,3)){
-      
-      for (l in 1:3){
-        cat("The current iteration is q:",q,"TT:",TT,"k:",k,"l:",l,"\n")
+    for (k in 1:4){
+
+      for (l in 1:2){
+
+        cat("The current iteration is q:",q,"TT:",TT,"B_mat_type:",k,"deg_type:",l,"\n")
         get_sim(q,TT,k,l,iter_max=100)
         cat("Done.\n")
       }
@@ -181,60 +226,81 @@ for (i in 1:4){
   }
 }
 
-#####################################################################################
+######################################################################################
 
-q_list <- c(20,30,50,100)
-T_list <- c(100,200,400,1000,2000,4000)
+# Summarize the results
+library(writexl)
+q_list <- c(24,60,120)
+T_list <- c(200,400,1000,2000,4000)
 
-list_total <- list()
+PVAR_summary <- data.frame()
 cnt <- 1
-for (i in 1:4){
+for (i in 1:3){
   q <- q_list[i]
 
-  for (j in 1:6){
+  for (j in 1:5){
     TT <- T_list[j]
 
-    for (k in 1:3){
-      if (k == 1){
-        nc <- 2
-      }else if (k == 2){
-        nc <- 3
-      }else if (k == 3){
-        nc <- 5
-      }
+    for (k in 1:4){
 
-      for (l in 1:3){
+      for (l in 1:2){
 
-        cat("Current q is",q,"T is",TT,"nc is",nc,"Bmat is",l,"\n")
-        load(paste0("PVAR_q",q,"_T",TT,"_nc",nc,"_Bmat_type",l,".RData"))
+        cat("The current iteration is q:",q,"TT:",TT,"B_mat_type:",k,"deg_type:",l,"\n")
+        load(paste0("sim_PVAR_q",q,"_T",TT,"_B_mat_type",k,"_deg_type",l,".RData"))
 
         iter_num <- length(PVAR_sim)
-        tab_agg <- colMeans(matrix(rowMeans(mapply(x=1:iter_num,
-                                          function(x)PVAR_sim[[x]]$acc_agg)),ncol=2))
-        tab_class <- colMeans(matrix(rowMeans(mapply(x=1:iter_num,
-                                            function(x)PVAR_sim[[x]]$acc_class)),ncol=2))
-        tab_ARI <- colMeans(matrix(rowMeans(mapply(x=1:iter_num,
-                                          function(x)PVAR_sim[[x]]$ARI)),ncol=2))
-        tab_NMI <- colMeans(matrix(rowMeans(mapply(x=1:iter_num,
-                                          function(x)PVAR_sim[[x]]$NMI)),ncol=2))
 
-        list_total[[cnt]] <- list(q=q,TT=TT,nc=nc,Bmat=l,counts=iter_num,
-                                  agg=tab_agg,class=tab_class,ARI=tab_ARI,NMI=tab_NMI)
+        # kmeans:
+        acc_kmeans <- round(1 - mean(mapply(iter=1:iter_num,
+                              function(iter)mean(mapply(m=1:4,
+                              function(m)PVAR_sim[[iter]]$kmeans[[m]]$err[1])))),3)
+        ARI_kmeans <- round(mean(mapply(iter=1:iter_num,
+                                  function(iter)mean(mapply(m=1:4,
+                                  function(m)PVAR_sim[[iter]]$kmeans[[m]]$err[2])))),3)
+
+        # pam:
+        acc_pam <- round(1 - mean(mapply(iter=1:iter_num,
+                                      function(iter)mean(mapply(m=1:4,
+                                      function(m)PVAR_sim[[iter]]$pam[[m]]$err[1])))),3)
+        ARI_pam <- round(mean(mapply(iter=1:iter_num,
+                                  function(iter)mean(mapply(m=1:4,
+                                  function(m)PVAR_sim[[iter]]$pam[[m]]$err[2])))),3)
+
+        # no alpha:
+        acc_noalpha <- round(1 - mean(mapply(iter=1:iter_num,
+                                   function(iter)mean(mapply(m=1:4,
+                                   function(m)PVAR_sim[[iter]]$noalpha[[m]]$err[1])))),3)
+        ARI_noalpha <- round(mean(mapply(iter=1:iter_num,
+                               function(iter)mean(mapply(m=1:4,
+                               function(m)PVAR_sim[[iter]]$noalpha[[m]]$err[2])))),3)
+
+        # no alpha + pam:
+        acc_noalpha_pam <- round(1 - mean(mapply(iter=1:iter_num,
+                                   function(iter)mean(mapply(m=1:4,
+                                   function(m)PVAR_sim[[iter]]$noalpha_pam[[m]]$err[1])))),3)
+        ARI_noalpha_pam <- round(mean(mapply(iter=1:iter_num,
+                                   function(iter)mean(mapply(m=1:4,
+                                   function(m)PVAR_sim[[iter]]$noalpha_pam[[m]]$err[2])))),3)
+
+        PVAR_summary <- rbind(PVAR_summary,data.frame(q=q,
+                                                      T=TT,
+                                                      scn=k,
+                                                      off=l,
+                                                      acc_kmeans=acc_kmeans,
+                                                      acc_noalpha=acc_noalpha,
+                                                      acc_pam=acc_pam,
+                                                      acc_noalpha_pam=acc_noalpha_pam,
+                                                      ARI_kmeans=ARI_kmeans,
+                                                      ARI_noalpha=ARI_noalpha,
+                                                      ARI_pam=ARI_pam,
+                                                      ARI_noalpha_pam=ARI_noalpha_pam))
+
         cnt <- cnt + 1
+        cat("Done.\n")
       }
     }
   }
 }
-save(list_total,file="PVAR_sim_total.RData")
-
-
-#####################################################################################
-load("PVAR_sim_total.RData")
-
-for (i in 1:216){
-  cat("#--------------------------#\n")
-  cat("Current q is",list_total[[i]]$q,"T is",list_total[[i]]$TT,"nc is",list_total[[i]]$nc,"and Bmat is",list_total[[i]]$Bmat,"\n")
-  cat(c(round(list_total[[i]]$class[1],3),"&",round(list_total[[i]]$NMI[1],3)),"\n")
-}
+write_xlsx(PVAR_summary, "PVAR_summary.xlsx")
 
 

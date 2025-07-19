@@ -2,7 +2,6 @@ rm(list=ls())
 
 library(superheat)
 library(igraph)
-library(fastRG)
 library(MASS)
 library(plotly)
 library(combinat)
@@ -15,9 +14,9 @@ library(RColorBrewer)
 library(grid)
 library(gridExtra)
 library(reshape2)
-library(patchwork)
+library(pheatmap)
 
-source('ScBM-LRVAR_library.R')
+source('ScBM_library.R')
 
 #####################################################
 # Data loading:
@@ -29,7 +28,7 @@ colnames(logrv) <- c("SPX","FTSE","N225","GDAXI","RUT",
                      "MXX","BVSP","GSPTSE","STOXX50E","FTSEMIB.MI")
 
 #####################################################
-# Figure in supplementary
+# Figure 4:
 Y_rep <- logrv[,c(2,3,11,16)]
 
 pdf("timeplot_VHAR.pdf", width = 12, height = 9)
@@ -51,7 +50,6 @@ dev.off()
 
 #####################################################
 # Estimation:
-set.seed(123)
 Yt <- t(logrv)
 TT <- dim(Yt)[2]
 q <- dim(Yt)[1]
@@ -61,7 +59,7 @@ Phi_series <- Est_VHAR_ols$Phi_hat
 superheat(Phi_series)
 
 #####################################################
-# Figure in supplementary
+# Figure C2:
 # Check the number of communities:
 svd_1 <- svd(Phi_series[,1:q])
 svd_2 <- svd(Phi_series[,(q+1):(2*q)])
@@ -115,36 +113,39 @@ k1 <- 3; k2 <- 4; k3 <- 3;
 
 #####################################################
 # Run the algorithm:
-set.seed(123)
+set.seed(12345)
 n_comm <- c(3,4,4,4,4,3)
-alpha_hat <- alpha_cv(Est_VHAR_ols$Phi_hat,q,n_comm=n_comm,fold=5)
+alpha_hat <- alpha_cv(Phi_series,q,p=1,n_comm=n_comm,type="PVAR",clst="kmeans",fold=5)
 
-PisCES_output <- PisCES(as.matrix(Phi_series),q,n_comm=n_comm,s=3,p=1,alpha=alpha_hat$alpha_hat)
-PVAR_1L <- blockbuster(PisCES_output$VL_bar[[1]],q,3)
-PVAR_1R2L <- blockbuster(cbind(PisCES_output$VR_bar[[1]],
-                               PisCES_output$VL_bar[[2]]),q,4)
-PVAR_2R3L <- blockbuster(cbind(PisCES_output$VR_bar[[2]],
-                               PisCES_output$VL_bar[[3]]),q,4)
-PVAR_3R <- blockbuster(PisCES_output$VR_bar[[3]],q,3)
+PisCES_output <- PisCES(Phi_series,q,p=1,n_comm=n_comm,s=3,alpha=alpha_hat$alpha_hat)
+
+
+PVAR_1L <- Blockbuster(PisCES_output$VL_bar[[1]],q,3,clst="kmeans")
+PVAR_1R2L <- Blockbuster(cbind(PisCES_output$VR_bar[[1]],
+                               PisCES_output$VL_bar[[2]]),q,4,clst="kmeans")
+PVAR_2R3L <- Blockbuster(cbind(PisCES_output$VR_bar[[2]],
+                               PisCES_output$VL_bar[[3]]),q,4,clst="kmeans")
+PVAR_3R <- Blockbuster(PisCES_output$VR_bar[[3]],q,3,clst="kmeans")
+
 
 # Refine the labels:
 result_list <- list(PVAR_1L,PVAR_1R2L,PVAR_2R3L,PVAR_3R)
-refined_list <- Refiner(result_list)
-PVAR_1L <- refined_list[[1]]
-PVAR_1R2L <- refined_list[[2]]
-PVAR_2R3L <- refined_list[[3]]
-PVAR_3R <- refined_list[[4]]
+PVAR_1L <- result_list[[1]]
+PVAR_1R2L <- result_list[[2]]
+PVAR_2R3L <- result_list[[3]]
+PVAR_3R <- result_list[[4]]
 
-#####################################################
-# Main Figure
-# Construct data flows:
-flow <- mapply(x=c(1,2,2,3,3,4),function(x)refined_list[[x]]$group_1q)
+
+flow <- mapply(x=c(1,2,2,3,3,4),function(x)result_list[[x]]$group_1q)
 rownames(flow) <- c("SPX","FTSE","N225","GDAXI","RUT",
                     "AORD","DJI","NDX","FCHI","HSI",
                     "KS11","AEX","SSMI","IBEX","NSEI",
                     "MXX","BVSP","GSPTSE","STOXX50E","FTSEMIB.MI")
 colnames(flow) <- c("daily.sending","daily.receiving","weekly.sending","weekly.receiving","monthly.sending","monthly.receiving")
 
+#####################################################
+# Figure 2:
+# Construct data flows:
 data_flow <- data.frame(x = c(rep("daily.sending",q),rep("daily.receiving",q),rep("weekly.sending",q),
                               rep("weekly.receiving",q),rep("monthly.sending",q),rep("monthly.receiving",q)), 
                         node = c(flow[,1],flow[,2],flow[,3],flow[,4],flow[,5],flow[,6]),
@@ -175,124 +176,126 @@ ggplot(data_flow, aes(x = x, next_x = next_x,
   theme(legend.position = "none",
         plot.title = element_text(hjust = .5)) +
   #daily.in, group 1
-  annotate("text", x = 1, y = c(-3:(-2-length(names(which(flow[,1]==1))))), 
+  annotate("text", x = 1, y = c(-7:(-6-length(names(which(flow[,1]==1))))), 
            color=color20[which(flow[,1]==1)],
            size=4,label=names(which(flow[,1]==1)),fontface=2) +
   #daily.in, group 2
-  annotate("text", x = 1, y = c(-0.5:(-1.5+length(names(which(flow[,1]==2))))), 
+  annotate("text", x = 1, y = c(-4.5:(-5.5+length(names(which(flow[,1]==2))))), 
            color=color20[which(flow[,1]==2)],
            size=4,label=names(which(flow[,1]==2)),fontface=2) +
   #daily.in, group 3
-  annotate("text", x = 1, y = c(7:(6+length(names(which(flow[,1]==3))))), 
+  annotate("text", x = 1, y = c(6:(5+length(names(which(flow[,1]==3))))), 
            color=color20[which(flow[,1]==3)],
            size=4,label=names(which(flow[,1]==3)),fontface=2) +
   #daily.out, group 1
-  annotate("text", x = 2, y = c(-6:(-5-length(names(which(flow[,2]==1))))), 
+  annotate("text", x = 2, y = c(-8:(-7-length(names(which(flow[,2]==1))))), 
            color=color20[which(flow[,2]==1)],
            size=4,label=names(which(flow[,2]==1)),fontface=2) +
   #daily.out, group 2
-  annotate("text", x = 2, y = c(-0.5:(0.5-length(names(which(flow[,2]==2))))), 
+  annotate("text", x = 2, y = c(-5.5:(-6.5+length(names(which(flow[,2]==2))))), 
            color=color20[which(flow[,2]==2)],
            size=4,label=names(which(flow[,2]==2)),fontface=2) +
   #daily.out, group 3
-  annotate("text", x = 2, y = c(2.5:(1.5+length(names(which(flow[,2]==3))))), 
+  annotate("text", x = 2, y = c(3.5:(2.5+length(names(which(flow[,2]==3))))), 
            color=color20[which(flow[,2]==3)],
            size=4,label=names(which(flow[,2]==3)),fontface=2) +
   #daily.out, group 4
-  annotate("text", x = 2, y = c(9:(8+length(names(which(flow[,2]==4))))), 
+  annotate("text", x = 2, y = c(10:(9+length(names(which(flow[,2]==4))))), 
            color=color20[which(flow[,2]==4)],
            size=4,label=names(which(flow[,2]==4)),fontface=2) +
   #weekly.out, group 1
-  annotate("text", x = 4, y = c(-9:(-8-length(names(which(flow[,4]==1))))), 
+  annotate("text", x = 4, y = c(-8:(-7-length(names(which(flow[,4]==1))))), 
            color=color20[which(flow[,4]==1)],
            size=4,label=names(which(flow[,4]==1)),fontface=2) +
   #weekly.out, group 2
-  annotate("text", x = 4, y = c(-3.5:(-2.5-length(names(which(flow[,4]==2))))), 
+  annotate("text", x = 4, y = c(-1.5:(-0.5-length(names(which(flow[,4]==2))))), 
            color=color20[which(flow[,4]==2)],
            size=4,label=names(which(flow[,4]==2)),fontface=2) +
   #weekly.out, group 3
-  annotate("text", x = 4, y = c(-0.5:(-1.5+length(names(which(flow[,4]==3))))), 
+  annotate("text", x = 4, y = c(1.5:(0.5+length(names(which(flow[,4]==3))))), 
            color=color20[which(flow[,4]==3)],
            size=4,label=names(which(flow[,4]==3)),fontface=2) +
   #weekly.out, group 4
-  annotate("text", x = 4, y = c(6:(5+length(names(which(flow[,4]==4))))), 
+  annotate("text", x = 4, y = c(9:(8+length(names(which(flow[,4]==4))))), 
            color=color20[which(flow[,4]==4)],
            size=4,label=names(which(flow[,4]==4)),fontface=2) +
   #monthly.out, group 1
-  annotate("text", x = 6, y = c(-5:(-4-length(names(which(flow[,6]==1))))), 
+  annotate("text", x = 6, y = c(-4:(-3-length(names(which(flow[,6]==1))))), 
            color=color20[which(flow[,6]==1)],
            size=4,label=names(which(flow[,6]==1)),fontface=2) +
   #monthly.out, group 2
-  annotate("text", x = 6, y = c(-2.5:(-3.5+length(names(which(flow[,6]==2))))), 
+  annotate("text", x = 6, y = c(-1.5:(-2.5+length(names(which(flow[,6]==2))))), 
            color=color20[which(flow[,6]==2)],
            size=4,label=names(which(flow[,6]==2)),fontface=2) +
   #monthly.out, group 3
-  annotate("text", x = 6, y = c(5:(4+length(names(which(flow[,6]==3))))), 
+  annotate("text", x = 6, y = c(6:(5+length(names(which(flow[,6]==3))))), 
            color=color20[which(flow[,6]==3)],
            size=4,label=names(which(flow[,6]==3)),fontface=2)
 dev.off()
 
-
-
 #####################################################
-# Main Figure
+# Figure 6:
 # Construct discrepancy matrix
+
 for (i in 1:20){
   disc_table_daily <- mapply(j=1:20,function(j)1*(flow[j,1] != flow[,1]) 
-                                 + 1*(flow[j,2] != flow[,2]))
+                             + 1*(flow[j,2] != flow[,2]))
   disc_table_weekly <- mapply(j=1:20,function(j)1*(flow[j,3] != flow[,3]) 
-                                 + 1*(flow[j,4] != flow[,4]))
+                              + 1*(flow[j,4] != flow[,4]))
   disc_table_monthly <- mapply(j=1:20,function(j)1*(flow[j,5] != flow[,5]) 
-                                 + 1*(flow[j,6] != flow[,6]))
+                               + 1*(flow[j,6] != flow[,6]))
 }
 
 rownames(disc_table_daily) <- rownames(disc_table_weekly) <- rownames(disc_table_monthly) <- c("SPX","FTSE","N225","GDAXI","RUT",
-                          "AORD","DJI","NDX","FCHI","HSI",
-                          "KS11","AEX","SSMI","IBEX","NSEI",
-                          "MXX","BVSP","GSPTSE","STOXX50E","FTSEMIB.MI")
+                                                                                               "AORD","DJI","NDX","FCHI","HSI",
+                                                                                               "KS11","AEX","SSMI","IBEX","NSEI",
+                                                                                               "MXX","BVSP","GSPTSE","STOXX50E","FTSEMIB.MI")
 colnames(disc_table_daily) <- colnames(disc_table_weekly) <- colnames(disc_table_monthly) <- c("SPX","FTSE","N225","GDAXI","RUT",
-                          "AORD","DJI","NDX","FCHI","HSI",
-                          "KS11","AEX","SSMI","IBEX","NSEI",
-                          "MXX","BVSP","GSPTSE","STOXX50E","FTSEMIB.MI")
-count_df_daily <- melt(disc_table_daily)
-count_df_weekly <- melt(disc_table_weekly)
-count_df_monthly <- melt(disc_table_monthly)
+                                                                                               "AORD","DJI","NDX","FCHI","HSI",
+                                                                                               "KS11","AEX","SSMI","IBEX","NSEI",
+                                                                                               "MXX","BVSP","GSPTSE","STOXX50E","FTSEMIB.MI")
 
+pl_daily <- pheatmap::pheatmap(as.matrix(disc_table_daily),
+           clustering_distance_rows = as.dist(disc_table_daily),
+           clustering_distance_cols = as.dist(disc_table_daily),
+           clustering_method = "average",
+           fontsize_row = 14,      
+           fontsize_col = 14,    
+           angle_col = "45", legend = TRUE,
+           color = colorRampPalette(c("blue", "white", "red"))(3))
 
-pdf("heatmap_VHAR.pdf", width = 13, height = 7)
-heat_daily <- ggplot(count_df_daily , aes(Var1, Var2, fill = value)) +
-  geom_tile() +
-  scale_fill_gradient(low = "red", high = "white", breaks=c(0,1,2)) +
-  scale_y_discrete(limits = rev(levels(factor(count_df_daily$Var1)))) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  labs(x = "", y = "", fill = "Discrepancy") + 
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) + 
-  theme(legend.position = "none")
-heat_weekly <- ggplot(count_df_weekly , aes(Var1, Var2, fill = value)) +
-  geom_tile() +
-  scale_fill_gradient(low = "red", high = "white", breaks=c(0,1,2)) +
-  scale_y_discrete(limits = rev(levels(factor(count_df_weekly$Var1)))) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  labs(x = "", y = "", fill = "Discrepancy") + 
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) + 
-  theme(legend.position = "none",
-        axis.text.y = element_blank(), axis.ticks.y = element_blank())
-heat_monthly <- ggplot(count_df_monthly , aes(Var1, Var2, fill = value)) +
-  geom_tile() +
-  scale_fill_gradient(low = "red", high = "white", breaks=c(0,1,2)) +
-  scale_y_discrete(limits = rev(levels(factor(count_df_monthly$Var1)))) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  labs(x = "", y = "", fill = "Discrepancy") + 
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) + 
-  theme(legend.position = "none",
-        axis.text.y = element_blank(), axis.ticks.y = element_blank())
-
-(heat_daily | heat_weekly | heat_monthly) + 
-  plot_layout(heights = c(1, 1, 1),guides = "collect") &
-  theme(legend.position = "bottom")
+pdf("heatmap_VHAR_daily.pdf", width = 13, height = 9)
+print(pl_daily)
+grid.text("Discrepancy (Daily)", x = 0.92, y = 0.95, gp = gpar(fontsize = 14, fontface = "bold"))
 dev.off()
 
+
+pl_weekly <- pheatmap::pheatmap(as.matrix(disc_table_weekly),
+         clustering_distance_rows = as.dist(disc_table_weekly),
+         clustering_distance_cols = as.dist(disc_table_weekly),
+         clustering_method = "average",
+         fontsize_row = 14,      
+         fontsize_col = 14,      
+         angle_col = "45", legend = TRUE,
+         color = colorRampPalette(c("blue", "white", "red"))(3))
+
+pdf("heatmap_VHAR_weekly.pdf", width = 13, height = 9)
+print(pl_weekly)
+grid.text("Discrepancy (Weekly)", x = 0.92, y = 0.95, gp = gpar(fontsize = 14, fontface = "bold"))
+dev.off()
+
+
+pl_monthly <- pheatmap::pheatmap(as.matrix(disc_table_monthly),
+         clustering_distance_rows = as.dist(disc_table_monthly),
+         clustering_distance_cols = as.dist(disc_table_monthly),
+         clustering_method = "average",   
+         fontsize_row = 14,      
+         fontsize_col = 14,      
+         angle_col = "45", legend = TRUE,
+         color = colorRampPalette(c("blue", "white", "red"))(3))
+
+pdf("heatmap_VHAR_monthly.pdf", width = 13, height = 9)
+print(pl_monthly)
+grid.text("Discrepancy (Monthly)", x = 0.92, y = 0.95, gp = gpar(fontsize = 14, fontface = "bold"))
+dev.off()
 

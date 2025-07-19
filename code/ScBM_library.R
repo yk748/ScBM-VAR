@@ -1,220 +1,164 @@
 #####################################################
-# Directed networks generator
+# Phi generator
 #####################################################
-DC_ScBM_generator <- function(q,s,n_comm,B_list,type,p,phi,tau=FALSE){
-  
-  #------------- Ym,Zm matrices -------------#
-  y_vec <- z_vec <- array(NA,dim=c(q,s))
-  if (type == "PVAR"){
-    for (m in 1:s){
-      if (m == 1){
-        Ky <- n_comm[1]; Kz <- n_comm[(2*s)]
-        if (Ky == Kz){
-          Kyz <- Ky
-          y_vec[,1] <- z_vec[,s] <- sample(rep(seq(1,Kyz,by=1),each=q/Kyz),
-                                           size=q,replace=FALSE)
-        }else{
-          y_vec[,1] <- sample(rep(seq(1,Ky,by=1),each=q/Ky),
-                              size=q,replace=FALSE)
-          z_vec[,s] <- sample(rep(seq(1,Kz,by=1),each=q/Kz),
-                              size=q,replace=FALSE)
-        }
+generate_directed_sbm <- function(q, sender, receiver, pref_matrix, selfTF=FALSE) {
+  r <- nrow(pref_matrix)
+  c <- ncol(pref_matrix)
 
-      }else{
-        Ky <- n_comm[(2*m)-1]; Kz <- n_comm[2*(m-1)]
-        if (Ky == Kz){
-          Kyz <- Ky
-          y_vec[,m] <- z_vec[,(m-1)] <- sample(rep(seq(1,Kyz,by=1),each=q/Kyz),
-                                               size=q,replace=FALSE)
+  #------------- Check: n must be divisible by both r and c -------------#
+  if (q %% r != 0 || q %% c != 0) {
+    stop("n must be divisible by both nrow and ncol of the preference matrix.")
+  }
 
-        }else{
-          y_vec[,m] <- sample(rep(seq(1,Ky,by=1),each=q/Ky),
-                              size=q,replace=FALSE)
-          z_vec[,(m-1)] <- sample(rep(seq(1,Kz,by=1),each=q/Kz),
-                                  size=q,replace=FALSE)
-        }
-      }
-    }
-    
-  }else if (type == "VHAR"){
-    for (m in 1:s){
-      if (m == 1){
-        Ky <- n_comm[1]; Kz <- n_comm[2*s]
-        y_vec[,1] <- sample(rep(seq(1,Ky,by=1),each=q/Ky),
-                            size=q,replace=FALSE) 
-        z_vec[,s] <- sample(rep(seq(1,Kz,by=1),each=q/Kz),
-                            size=q,replace=FALSE)
-        
-      }else{
-        Ky <- n_comm[(2*m)-1]; Kz <- n_comm[2*(m-1)]
-        if (Ky == Kz){
-          Kyz <- Ky
-          y_vec[,m] <- z_vec[,(m-1)] <- sample(rep(seq(1,Kyz,by=1),each=q/Kyz),
-                                               size=q,replace=FALSE)
-          
-        }else{
-          y_vec[,m] <- sample(rep(seq(1,Ky,by=1),each=q/Ky),
-                              size=q,replace=FALSE)
-          z_vec[,(m-1)] <- sample(rep(seq(1,Kz,by=1),each=q/Kz),
-                                  size=q,replace=FALSE)
-        }
-      }
-    }
-  }
+  #------------- Heterogenous degrees -------------#
+  y_deg <- rlnorm(q, meanlog = 2, sdlog = 1)
+  z_deg <- rlnorm(q, meanlog = 2, sdlog = 1)
   
-  # for (m in 1:s){
-  #   y_vec[,m] <- sort(y_vec[,m])
-  #   z_vec[,m] <- sort(z_vec[,m])
-  # }
-   
-  Y <- Z <- list()
-  for (m in 1:s){
-    Ky <- n_comm[(2*m)-1]
-    Y_mat <- array(0,dim=c(q,Ky))
-    for (k in 1:Ky){
-      Y_mat[y_vec[,m]==k,k] <- 1
-    }
+  #------------- For identifiability: -------------#
+  for (k in 1:r){
+    y_deg[which(sender==k)] <- y_deg[which(sender==k)]/sum(y_deg[which(sender==k)])
+  }
+  for (k in 1:c){
+    z_deg[which(receiver==k)] <- z_deg[which(receiver==k)]/sum(z_deg[which(receiver==k)])
+  }
 
-    Kz <- n_comm[2*m]
-    Z_mat <- array(0,dim=c(q,Kz))
-    for (k in 1:Kz){
-      Z_mat[z_vec[,m]==k,k] <- 1
+  adj <- matrix(0, q, q)
+
+  #------------- Sampling: -------------#
+  p_mat <- matrix(NA,q,q)
+  for (i in 1:q) {
+    for (j in 1:q) {
+      g_i <- sender[i]
+      g_j <- receiver[j]
+      p_mat[i,j] <- pref_matrix[g_i, g_j]*y_deg[i]*z_deg[j]
     }
-    Y[[m]] <- Y_mat
-    Z[[m]] <- Z_mat
   }
-  
-  #------------- Theta matrices -------------#
-  Theta_O <- Theta_P <- list()
-  for (m in 1:s){
-    # From fastRG:
-    y_deg <- rlnorm(q, meanlog = 2, sdlog = 1)
-    z_deg <- rlnorm(q, meanlog = 2, sdlog = 1)
-    
-    # alpha <- 2.5
-    # y_deg <- sample(alpha*(q/(1:q))^(1+alpha),q,replace=FALSE)
-    # z_deg <- sample(rev(alpha*(q/(1:q))^(1+alpha)),q,replace=FALSE)
-    
-    # # Okay:
-    # y_deg <- rep(1,q)
-    # z_deg <- rev(rep(1,q))
-    
-    # y_deg <- seq(1,q)
-    # z_deg <- rev(seq(1,q))  
-    
-    Ky <- n_comm[(2*m)-1]
-    for (k in 1:Ky){
-      y_deg[y_vec[,m]==k] <- y_deg[y_vec[,m]==k]/sum(y_deg[y_vec[,m]==k])
-    }
-    Theta_O[[m]] <- diag(y_deg)
-    
-    Kz <- n_comm[(2*m)]
-    for (k in 1:Kz){
-      z_deg[z_vec[,m]==k] <- z_deg[z_vec[,m]==k]/sum(z_deg[z_vec[,m]==k])
-    }
-    Theta_P[[m]] <- diag(z_deg)
+  p_mat <- p_mat/max(p_mat)
+  adj <-1*(p_mat>matrix(runif(q^2,0,1),q,q))
+
+  if(!selfTF){
+    diag(adj) <- 0;
+  }else{
+    diag(adj) <- 1
   }
-  
-  #------------- Poisson sampling -------------#
-  A <- list(); W <- list()
-  for (m in 1:s){
-    Ky <- n_comm[(2*m)-1]
-    Kz <- n_comm[(2*m)]
-    
-    # B_mat <- diag(colSums(Theta_O[[m]] %*% Y[[m]])) %*% B_list[[m]] %*% diag(colSums(Theta_P[[m]] %*% Z[[m]]))
-    B_mat <- t(Theta_O[[m]] %*% Y[[m]]) %*% (Theta_O[[m]] %*% Y[[m]]) %*% B_list[[m]] %*% t(Theta_P[[m]] %*% Z[[m]]) %*% (Theta_P[[m]] %*% Z[[m]])
-    Prob_B_mat <- B_mat/sum(B_mat)
-    ref_B <- matrix(c(1:length(B_mat)),Ky,Kz)
-    
-    Y_sum <- colSums(Theta_O[[m]] %*% Y[[m]]); Z_sum <- colSums(Theta_P[[m]] %*% Z[[m]])
-    Y_tilde <- array(0,dim(Y[[m]])); Z_tilde <- array(0,dim(Z[[m]]))
-    for (j in 1:Ky){
-      if (Y_sum[j]!=0){
-        Y_tilde[,j] <- (Theta_O[[m]] %*% Y[[m]])[,j]/Y_sum[j]
-      }
-    }
-    for (j in 1:Kz){
-      if (Z_sum[j]!=0){
-        Z_tilde[,j] <- (Theta_P[[m]] %*% Z[[m]])[,j]/Z_sum[j]
-      }
-    }
-    
-    dnst <- 1
-    num_ent <- dnst*q^2
-    A[[m]] <- array(0,dim=c(q,q))
-    add_ref <- sample(c(1:(Ky*Kz)),num_ent,replace=TRUE,prob=as.vector(Prob_B_mat))
-    for (i in 1:num_ent){
-      coord_B <- which(ref_B==add_ref[i],arr.ind=TRUE)
-      coord_y <- sample(1:q,1,replace=TRUE,prob=Y_tilde[,coord_B[1]])
-      coord_z <- sample(1:q,1,replace=TRUE,prob=Z_tilde[,coord_B[2]])
-      
-      A[[m]][coord_y,coord_z] <- A[[m]][coord_y,coord_z] + 1
-    }
-    A[[m]] <- 1*(A[[m]]!=0)
-    # diag(A[[m]]) <- rep(1,q)
-    W[[m]] <- A[[m]]*runif(q^2,0.3,1)
-    # diag(W[[m]]) <- rep(1,q)
-  }
-  
-  #------------- Laplacian matrices & VAR Transition matrices -------------#
-  L <- list()
+
+  return(list(adj = adj, sender_deg=y_deg, receiver_deg = z_deg))
+}
+
+
+Phi_generator <- function(q, B_list, s, phi, selfTF=FALSE,
+                          n_comm, threshold=TRUE){
+
   Phi <- list()
+  Adj <- list()
+  w_Adj <- list()
+  y_vec <- z_vec <- matrix(NA,q,s)
   for (m in 1:s){
-    
-    if (isFALSE(tau)){
-      tau <- 0
-    }else{
-      tau <- mean(colSums(W[[m]]))
+    y_vec[,m] <- rep(seq(1,n_comm[2*(m-1)+1],by=1),each=q/n_comm[2*(m-1)+1])
+    z_vec[,m] <- rep(seq(1,n_comm[2*m],by=1),each=q/n_comm[2*m])
+
+    Adj[[m]] <- generate_directed_sbm(q, sender = y_vec[,m],
+                                      receiver = z_vec[,m],
+                                      pref_matrix=B_list[[m]], selfTF=selfTF)$adj;
+    w <- matrix(runif(q^2,0.3,1),q,q)
+    diag(w) <- 1
+    w_Adj[[m]] <- w * Adj[[m]]
+
+    #------------- Corrected not to divide by zero. It produced non-stationary errors -------------#
+    In_deg <- rowSums(as.matrix(Adj[[m]])); # rowSums, O
+    Out_deg <- colSums(as.matrix(Adj[[m]])); # colSums, P
+
+    if (threshold){
+      tau <- mean(Out_deg)
+      In_deg <- In_deg + tau
+      Out_deg <- Out_deg + tau
     }
-    
-    O_tau <- colSums(W[[m]]) + rep(tau,q)
-    P_tau <- rowSums(W[[m]]) + rep(tau,q)
-    O_sqrt_inv <- matrix(0,nrow=q,ncol=q)
-    P_sqrt_inv <- matrix(0,nrow=q,ncol=q)
-    for (i in 1:q){
-      if(P_tau[i] != 0){
-        P_sqrt_inv[i,i] <- 1/sqrt(P_tau[i])
-      }else{
-        P_sqrt_inv[i,i] <- 0 
-      }
-      
-      if(O_tau[i] != 0){
-        O_sqrt_inv[i,i] <- 1/sqrt(O_tau[i])
-      }else{
-        O_sqrt_inv[i,i] <- 0 
-      }
-    }
-    
-    Phi_m <- array(NA,dim=c(q,(q*p)))
-    L_m <- matrix(0,q,q)
-    for (h in 1:p){
-      Phi_m[,((h-1)*q+1):(h*q)] <- phi[[m]][h]* t(O_sqrt_inv %*% W[[m]] %*% P_sqrt_inv)
-      L_m <- L_m + t(Phi_m[,((h-1)*q+1):(h*q)])/phi[[m]][h]
-    }
-    Phi[[m]] <- Phi_m
-    L[[m]] <- L_m
+
+    #------------- Set scaling factors: zero if degree is zero, else sqrt(1 / deg) -------------#
+    out_scale <- ifelse(Out_deg == 0, 0, sqrt(1 / Out_deg))
+    in_scale  <- ifelse(In_deg  == 0, 0, sqrt(1 / In_deg))
+
+    #------------- Build scaling diagonal matrices -------------#
+    D_out_inv_sqrt <- diag(out_scale, q);
+    D_in_inv_sqrt  <- diag(in_scale, q)
+
+    #------------- Final multiplication -------------#
+    Phi_raw <- D_out_inv_sqrt %*% t(w_Adj[[m]]) %*% D_in_inv_sqrt
+    Phi[[m]] <- phi[[m]]*(Phi_raw)
   }
-  
-  #------------- Outputs -------------#
-  output <- list()
+
+  # Outputs
+  output <- list();
   output$y_vec <- y_vec
   output$z_vec <- z_vec
-  output$Y <- Y
-  output$Z <- Z
-  output$Theta_O <- Theta_O
-  output$Theta_P <- Theta_P
-  output$W <- W
-  output$A <- A
-  output$L <- L
-  output$Phi <- Phi
+  output$Adj <- Adj;
+  output$W_Adj <- w_Adj
+  output$Phi <- Phi;
   return(output)
+}
+
+#####################################################
+# Power method for spectral radius
+#####################################################
+spectral_radius_power <- function(A, tol = 1e-6, max_iter = 1000) {
+  x <- rnorm(ncol(A))
+  x <- x / sqrt(sum(x^2))
+  for (i in 1:max_iter) {
+    x_new <- A %*% x
+    lambda <- sqrt(sum(x_new^2))
+    x_new <- x_new / lambda
+    if (sqrt(sum((x_new - x)^2)) < tol) break
+    x <- x_new
+  }
+  return(lambda)
+}
+
+
+#####################################################
+# evaluate_clustering
+#####################################################
+evaluate_clustering <- function(true_labels, estimated_labels) {
+  
+  
+  true_labels <- as.integer(factor(true_labels))
+  estimated_labels <- as.integer(factor(estimated_labels))
+  
+  classes <- sort(unique(true_labels))
+  k <- length(classes)
+  
+  perms <- permutations(n = k, r = k)
+  
+  best_error <- Inf
+  best_ari <- NA
+  best_labels <- NULL
+  
+  for (i in 1:nrow(perms)) {
+    perm <- perms[i, ]
+    
+    #------------- Map estimated labels using current permutation -------------#
+    label_map <- setNames(perm, classes)
+    remapped <- sapply(estimated_labels, function(x) label_map[as.character(x)])
+    
+    #------------- Misclassification error -------------#
+    err <- mean(remapped != true_labels)
+    
+    if (err < best_error) {
+      best_error <- err
+      best_labels <- remapped
+      best_ari <- adjustedRandIndex(true_labels, remapped)
+    }
+  }
+  
+  return(list(
+    err = c(best_error, best_ari),
+    matched_labels = best_labels))
 }
 
 
 #####################################################
 # Cross-validation for alpha
 #####################################################
-alpha_cv <- function(Phi_series,q,p,n_comm=n_comm,type,fold=5){
+alpha_cv <- function(Phi_series,q,p,n_comm,type,clst,fold=5){
   
   #------------- Construct completed adjacency matrices -------------#
   # Divide q (diagonal) + comb(q,2) pairs into S fold
@@ -236,17 +180,22 @@ alpha_cv <- function(Phi_series,q,p,n_comm=n_comm,type,fold=5){
       selectPairMatrix(q,Idx[x,,l],Phi_series[,((x-1)*q+1):(x*q)])),
       nrow=q,ncol=(s*q))
     
+    # # ------------------------------- #
+    # for (m in 1:s){
+    #   tmp_L[,((m-1)*q+1):(m*q)] <- solve(sqrt(diag(rowSums(tmp_L[,((m-1)*q+1):(m*q)]),q) + diag(mean(colSums(tmp_L[,((m-1)*q+1):(m*q)])),q))) %*% tmp_L[,((m-1)*q+1):(m*q)] %*% solve(sqrt(diag(colSums(tmp_L[,((m-1)*q+1):(m*q)]),q) + diag(mean(colSums(tmp_L[,((m-1)*q+1):(m*q)])),q)))
+    # }
+    # # ------------------------------- #
+    
     for(m in 1:s){
       Ky <- n_comm[(2*m-1)]; Kz <- n_comm[(2*m)]; Kyz <- min(Ky,Kz)
       svd_tmp <- svd((tmp_L[,((m-1)*q+1):(m*q)]),nu=Kyz,nv=Kyz)
-      L_hat[,((m-1)*q+1):(m*q),l] <- svd_tmp$u[,1:Kyz] %*% diag(svd_tmp$d,Kyz) %*% t(Conj(svd_tmp$v[,1:Kyz]))/0.9
+      L_hat[,((m-1)*q+1):(m*q),l] <- svd_tmp$u[,1:Kyz] %*% diag(svd_tmp$d,Kyz) %*% t(Conj(svd_tmp$v[,1:Kyz]))
     }
   }
   
   #------------- Evaluate likelihood through PisCES -------------#
   # range of the candidate alphas
   #########################################################################################
-  # This has to be investigated:
   alpha_max <- 1/(4*sqrt(2)+2)
   alpha <- exp(seq(log(0.01*alpha_max),
                    log(alpha_max),length.out=20))
@@ -272,24 +221,24 @@ alpha_cv <- function(Phi_series,q,p,n_comm=n_comm,type,fold=5){
             if (Ky == Kz){
               Kzy <- Ky
               V_aug <- rbind(PisCES_la$VR_bar[[s]],PisCES_la$VL_bar[[1]])
-              group_L[[1]] <- group_R[[s]] <- Blockbuster(V_aug,q,Kzy)
+              group_L[[1]] <- group_R[[s]] <- Blockbuster(V_aug,q,Kzy,clst)
               
             }else{
-              group_L[[1]] <- Blockbuster(PisCES_la$VL_bar[[1]],q,Ky)
-              group_R[[s]] <- Blockbuster(PisCES_la$VR_bar[[s]],q,Kz) 
+              group_L[[1]] <- Blockbuster(PisCES_la$VL_bar[[1]],q,Ky,clst)
+              group_R[[s]] <- Blockbuster(PisCES_la$VR_bar[[s]],q,Kz,clst) 
             }
-
+            
           }else{
             Ky <- n_comm[(2*m)-1]; Kz <- n_comm[2*(m-1)]
             if (Ky == Kz){
               Kzy <- Ky
               V_aug <- rbind(PisCES_la$VR_bar[[(m-1)]],PisCES_la$VL_bar[[m]])
-              group_L[[m]] <- group_R[[(m-1)]] <- Blockbuster(V_aug,q,Kzy)
-
+              group_L[[m]] <- group_R[[(m-1)]] <- Blockbuster(V_aug,q,Kzy,clst)
+              
             }else{
-              group_L[[m]] <- Blockbuster(PisCES_la$VL_bar[[m]],q,Ky)
-              group_R[[(m-1)]] <- Blockbuster(PisCES_la$VR_bar[[(m-1)]],q,Kz)
-
+              group_L[[m]] <- Blockbuster(PisCES_la$VL_bar[[m]],q,Ky,clst)
+              group_R[[(m-1)]] <- Blockbuster(PisCES_la$VR_bar[[(m-1)]],q,Kz,clst)
+              
             }
           }
         }
@@ -298,19 +247,19 @@ alpha_cv <- function(Phi_series,q,p,n_comm=n_comm,type,fold=5){
         for (m in 1:s){
           if (m == 1){
             Ky <- n_comm[1]; Kz <- n_comm[(2*s)]
-            group_L[[1]] <- Blockbuster(PisCES_la$VL_bar[[1]],q,Ky)
-            group_R[[s]] <- Blockbuster(PisCES_la$VR_bar[[s]],q,Kz)
+            group_L[[1]] <- Blockbuster(PisCES_la$VL_bar[[1]],q,Ky,clst)
+            group_R[[s]] <- Blockbuster(PisCES_la$VR_bar[[s]],q,Kz,clst)
             
           }else{
             Ky <- n_comm[(2*m)-1]; Kz <- n_comm[2*(m-1)]
             if (Ky == Kz){
               Kzy <- Ky
               V_aug <- rbind(PisCES_la$VR_bar[[(m-1)]],PisCES_la$VL_bar[[m]])
-              group_L[[m]] <- group_R[[(m-1)]] <- Blockbuster(V_aug,q,Kzy)
+              group_L[[m]] <- group_R[[(m-1)]] <- Blockbuster(V_aug,q,Kzy,clst)
               
             }else{
-              group_L[[m]] <- Blockbuster(PisCES_la$VL_bar[[m]],q,Ky)
-              group_R[[(m-1)]] <- Blockbuster(PisCES_la$VR_bar[[(m-1)]],q,Kz)
+              group_L[[m]] <- Blockbuster(PisCES_la$VL_bar[[m]],q,Ky,clst)
+              group_R[[(m-1)]] <- Blockbuster(PisCES_la$VR_bar[[(m-1)]],q,Kz,clst)
               
             }
           }
@@ -359,10 +308,16 @@ alpha_cv <- function(Phi_series,q,p,n_comm=n_comm,type,fold=5){
   }
   
   #------------- Choose alpha -------------#
+  M_large <- 1e8
+  if (any(is.nan(loglik))){
+    loglik[is.nan(loglik)] <- -M_large
+  }
+  
   loglik_final <- colSums(loglik)/fold
   alpha_hat <- alpha[which.max(loglik_final)]    
   
   output <- list()
+  output$alpha_grid <- alpha
   output$alpha_hat <- alpha_hat
   output$likelihood <- loglik_final
   return(output)
@@ -387,7 +342,7 @@ selectPairMatrix = function(q, index, mat){
 #####################################################
 # Blockbuster: Spectral clustering
 #####################################################
-Blockbuster <- function(mat,q,K){
+Blockbuster <- function(mat,q,K,clst=c("kmeans","pam","dbscan")){
   
   qq <- dim(mat)[1]
   
@@ -402,9 +357,22 @@ Blockbuster <- function(mat,q,K){
       } 
     }
     
-    k_means <- kmeans(X,centers=K)
-    mat_1q <- cbind(1:q,k_means$cluster)
-    mat_re <- mat_1q[order(mat_1q[,2]),]
+    if (clst == "kmeans"){
+      clut_result <- kmeans(X,centers=K)
+      mat_1q <- cbind(1:q,clut_result$cluster)
+      mat_re <- mat_1q[order(mat_1q[,2]),]
+      
+    }else if (clst == "pam"){
+      clut_result <- pam(X,k=K)
+      mat_1q <- cbind(1:q,clut_result$clustering)
+      mat_re <- mat_1q[order(mat_1q[,2]),]
+      
+    }else { # clst == "dbscan"
+      clut_result <- hdbscan(X,minPts = 2)
+      mat_1q <- cbind(1:q,clut_result$cluster+1)
+      mat_re <- mat_1q[order(mat_1q[,2]),]
+      
+    }
     
   }else{
     X1 <- mat[1:q,]; X2 <- mat[(q+1):(2*q),]
@@ -420,9 +388,22 @@ Blockbuster <- function(mat,q,K){
     }
     XX <- cbind(X1,X2)
     
-    k_means <- kmeans(XX,centers=K)
-    mat_1q <- cbind(1:q,k_means$cluster)
-    mat_re <- mat_1q[order(mat_1q[,2]),]
+    if (clst == "kmeans"){
+      clut_result <- kmeans(XX,centers=K)
+      mat_1q <- cbind(1:q,clut_result$cluster)
+      mat_re <- mat_1q[order(mat_1q[,2]),]
+      
+    }else if (clst == "pam"){
+      clut_result <- pam(XX,k=K)
+      mat_1q <- cbind(1:q,clut_result$clustering)
+      mat_re <- mat_1q[order(mat_1q[,2]),]
+      
+    }else { # clst == "dbscan"
+      clut_result <- hdbscan(XX,minPts=2)
+      mat_1q <- cbind(1:q,clut_result$cluster+1)
+      mat_re <- mat_1q[order(mat_1q[,2]),]
+      
+    }
   }
   
   output <- list()
@@ -586,15 +567,15 @@ PVAR_generator = function(TT, s, p, Phi, Sigma){
   #   m <- (t-1) %% s + 1
   #   Yt[t,] <- Phi[,((m-1)*q+1):(m*q)] %*% Yt[(t-1),] + innovations[t,]
   # }
-
+  
   Theta <- phitoTheta(Phi,s,q,p)
   for(t in (p+1):(TT+burn)){
-
+    
     j <- t %% s;
     j <- ifelse(j == 0, s, j);
     idx_y <- seq(from= t-1, to = t-p, by=-1);
     vec_yt <- as.vector(Yt[idx_y,]);
-
+    
     for(k in 1:q){
       idx_q = seq(from=(k-1)*(p*q)+1, to=k*(p*q), by=1);
       # cat(idx_q,"\n")
@@ -661,7 +642,7 @@ VHAR_generator = function(TT, Phi, Sigma){
 #####################################################
 # PVAR estimation through OLS:
 #####################################################
-PVAR_ols_new <- function(Yt,s,p=1){
+PVAR_ols <- function(Yt,s,p=1){
   
   TT <- ncol(Yt);
   q <- nrow(Yt);
@@ -685,62 +666,6 @@ PVAR_ols_new <- function(Yt,s,p=1){
     Phi_hat[,(q*(m-1)+1):(q*m)] <- solve(X %*% t(X) + eps*diag(1,q)) %*% X %*% t(Z)
   }
   return(list(Phi_hat=Phi_hat))
-}
-
-
-PVAR_ols = function(Yt, s, p){
-  
-  TT <- ncol(Yt);
-  q <- nrow(Yt);
-  if(is.null(q)){
-    q <- 1
-  }
-  
-  # st <- (floor(p/s-10e-6)+1)*s; 
-  st <- 1
-  hat <- numeric(q^2*p);
-  Phi_hat <- NULL;
-  
-  m = floor(TT/s);
-  for(i in 1:s){
-    
-    id <- seq(from=st+i, to=TT, by=s);
-    Y1 <- as.vector(Yt[,id]);
-    len_id <- length(id);
-    X1 <- matrix(0, p*q, len_id); 
-    
-    for(j in 1:len_id){
-      
-      id_ar <- seq(from=id[j]-1 , to = id[j]-p ,by=-1);
-      # cat(id_ar,"\n")
-      X1[,j] <- as.vector(Yt[,id_ar]);
-    }
-    
-    # eps <- 0
-    eig_val <- eigen(X1%*%t(X1))$values
-    min_idx <- which(eig_val < 0)
-    if(length(min_idx)==0){
-      eps <- 0
-    }else{
-      # eps <- 50*abs(eig_val[max(min_idx)])
-      eps <- 1e-8
-    }
-    
-    # Replace the line using kronecker with:
-    hat <- numeric(q*p*q)
-    for (i in 1:q) {
-      start_idx <- (i-1)*p*q + 1
-      end_idx <- i*p*q
-      # cat(start_idx,end_idx,"\n")
-      hat[start_idx:end_idx] <- solve(X1 %*% t(X1) + eps * diag(1, q)) %*% X1 %*% Y1[(i-1)*len_id + 1:len_id]
-    }
-    
-    a   <- matrix(hat, nrow=q)
-    Phi_hat <- rbind(Phi_hat, a);
-  }
-  init <- phitoTheta(t(Phi_hat),s,q,p);
-  
-  return(list(Phi_hat=t(Phi_hat), init=init) );
 }
 
 #####################################################
@@ -928,85 +853,6 @@ const_ols = function(x,y, A.lasso){
   return(A1.db)
 }
 
-
-#####################################################
-# Calculate NMI:
-#####################################################
-calculate_nmi <- function(labels1, labels2) {
-  contingency_table <- table(labels1, labels2)
-  
-  # Calculate Mutual Information (MI)
-  joint_prob <- contingency_table / sum(contingency_table)
-  row_marginals <- rowSums(joint_prob)
-  col_marginals <- colSums(joint_prob)
-  
-  mi <- sum(
-    joint_prob[joint_prob > 0] * 
-      log(joint_prob[joint_prob > 0] / (row_marginals %*% t(col_marginals))[joint_prob > 0])
-  )
-  
-  # Calculate entropy
-  entropy <- function(prob) {
-    -sum(prob[prob > 0] * log(prob[prob > 0]))
-  }
-  
-  h1 <- entropy(row_marginals)
-  h2 <- entropy(col_marginals)
-  
-  # Calculate NMI
-  #  nmi <- mi / sqrt(h1 * h2)
-  nmi <- 2*mi / (h1 + h2)
-  return(nmi)
-}
-
-
-#####################################################
-# Refiner
-#####################################################
-Refiner <- function(result_list){
-  
-  # Check the number of columns in the label matrix:
-  ncol <- length(result_list)
-  mat_refined <- array(NA,dim=c(q,ncol))
-  
-  # Initialization:
-  mat_refined[,1] <- result_list[[1]]$group_1q
-  
-  # Find rearrangement:
-  for (j in 2:ncol){
-    num_comm <- length(unique(result_list[[j]]$group_1q))
-    entry <- c(1:num_comm)
-    perm_mat <- matrix(unlist(permn(entry)),ncol=num_comm,byrow=TRUE)
-    
-    submat_refined <- array(NA,dim=c(q,dim(perm_mat)[1]))
-    for (i in 1:dim(perm_mat)[1]){
-      mat_tmp <- vector("numeric",q)
-      for (k in 1:length(entry)){
-        mat_tmp[which(result_list[[j]]$group_1q == entry[k])] <- perm_mat[i,k]
-      }
-      submat_refined[,i] <- mat_tmp
-    }
-    
-    # # Criteria: Number of equivalent labels 
-    # equiv <- (submat_refined == mat_refined[,(j-1)])
-    # sum_equiv <- colSums(equiv)
-    # mat_refined[,j] <- submat_refined[,which.min(sum_equiv)]
-    
-    # Criteria: Minimizing absolute difference
-    MAD <- abs(submat_refined - mat_refined[,(j-1)])
-    sum_MAD <- colSums(MAD)
-    mat_refined[,j] <- submat_refined[,which.min(sum_MAD)]
-    
-    result_list[[j]]$group_1q <- mat_refined[,j]
-    mat_1q <- cbind(1:q,mat_refined[,j])
-    mat_re <- mat_1q[order(mat_1q[,2]),]
-    result_list[[j]]$group_re <- mat_re[,2]
-    result_list[[j]]$subj <- mat_re[,1]
-  }
-  
-  # Return output:
-  return(result_list)
-}
 
 #####################################################
 # Companion matrix from VAR(p) to make VAR(1)
